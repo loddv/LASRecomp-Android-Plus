@@ -1,8 +1,8 @@
-# LAS Recomp's release builds: the macOS arm64 .dmg (make dmg), the Windows x64 .zip (make dist) and the Linux
-# x86_64 / aarch64 AppImages (make appimage), each from the same commit, put on a DRAFT GitHub release with their
-# sha256s. It never publishes: a person reads the draft, writes the notes and publishes it. None of the files holds
-# game code or game files (the start screen builds the game code from the player's own game files); every build
-# checks that before its upload.
+# LAS Recomp's release builds: the Android APK, macOS arm64 .dmg (make dmg), the Windows x64 .zip (make dist) and the
+# Linux x86_64 / aarch64 AppImages (make appimage), each from the same commit, put on a DRAFT GitHub release with their
+# sha256s and commit list. It never publishes: a person reads the draft, writes the notes and publishes it. None of the
+# files holds game code or game files (the start screen builds the game code from the player's own game files); every
+# build checks that before its upload.
 # Run: gh workflow run release.yml --ref beta_5 -f tag=beta_5 -f ref=beta_5
 #   (--ref: the branch whose copy of this file runs - GitHub dispatches by name only from the default branch's copy,
 #   so until this file is on main, name a branch that has it)
@@ -265,6 +265,41 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
+  android:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Android SDK and NDK
+        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Android dependencies
+        run: tools/android/build_deps.sh
+      - name: Build and verify public APK
+        env:
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          tools/android/ondevice/build_all.sh
+          (cd android && ./gradlew --no-daemon assembleRelease -PonDeviceBuild=true \
+            -PlasVersionCode="$GITHUB_RUN_NUMBER" -PlasVersionName="$TAG")
+          tools/android/ondevice/check_public_apk.sh android/app/build/outputs/apk/release/app-release.apk
+          mkdir -p build/dist
+          cp android/app/build/outputs/apk/release/app-release.apk "build/dist/LAS-Recomp-Android-${TAG}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: build/dist/*.apk
+          if-no-files-found: error
+          compression-level: 0
+
   # (a release published on GitHub: a line on top of its notes while the files build)
   announce:
     needs: check
@@ -284,7 +319,7 @@ jobs:
           gh release edit "$TAG" --notes-file new.md
 
   release:
-    needs: [check, macos, windows, linux]
+    needs: [check, macos, windows, linux, android]
     if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-24.04
     permissions:
@@ -294,6 +329,10 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check.outputs.sha }}
+          fetch-depth: 0
       - name: Draft release
         env:
           TAG: ${{ inputs.tag || github.event.release.tag_name }}
@@ -304,10 +343,30 @@ jobs:
         run: |
           cd dist
           ls -la
-          [ "$(ls | wc -l)" = 4 ] || { echo "::error::expected 4 files"; exit 1; }
+          [ "$(ls | wc -l)" = 5 ] || { echo "::error::expected 5 files"; exit 1; }
+          PREVIOUS=$(git describe --tags --abbrev=0 "$SHA^" 2>/dev/null || true)
+          if [ -n "$PREVIOUS" ]; then RANGE="$PREVIOUS..$SHA"; else RANGE="$SHA"; fi
+          git log --reverse --format="- [%h](https://github.com/$GH_REPO/commit/%H) %s" "$RANGE" > ../commits.md
+          [ -s ../commits.md ] || echo "- No commits since the previous release tag." > ../commits.md
           if [ "$EVENT" = release ]; then  # (published on GitHub: attach the files, the notes get the sha256 table)
-            gh release view "$TAG" --json body -q .body | grep -v '^> The download files are being built' > ../body.md || true
-            { cat ../body.md; echo; echo "| File | sha256 |"; echo "|---|---|"
+            gh release view "$TAG" --json body -q .body > ../body.md
+            awk '
+              $0 == "<!-- release-commits:start -->" { skip=1; next }
+              $0 == "<!-- release-commits:end -->" { skip=0; next }
+              !skip { print }
+            ' ../body.md | grep -v '^> The download files are being built' > ../body-base.md || true
+            {
+              cat ../body-base.md
+              echo
+              echo "<!-- release-commits:start -->"
+              echo "## Commits since ${PREVIOUS:-repository start}"
+              echo
+              cat ../commits.md
+              echo
+              echo "<!-- release-commits:end -->"
+              echo
+              echo "| File | sha256 |"
+              echo "|---|---|"
               for f in *; do echo "| \`${f// /.}\` | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"; done; } > ../notes.md
             gh release upload "$TAG" --clobber *
             gh release edit "$TAG" --notes-file ../notes.md
@@ -319,6 +378,13 @@ jobs:
             echo "Release notes: (to be written)"
             echo
             echo "Built from $SHA."
+            echo
+            echo "<!-- release-commits:start -->"
+            echo "## Commits since ${PREVIOUS:-repository start}"
+            echo
+            cat ../commits.md
+            echo
+            echo "<!-- release-commits:end -->"
             echo
             echo "| File | sha256 |"
             echo "|---|---|"
