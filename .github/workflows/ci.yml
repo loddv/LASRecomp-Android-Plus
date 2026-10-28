@@ -244,3 +244,25 @@ jobs:
         run: TT_GMEM_CHUNK_SHIFT=24 TT_GMEM_LAZY=1 TT_GMEM_FS_MISS=1 REF=HEAD tools/test_translate.sh 500 "$(nproc)" glsl
       - name: Vulkan synchronization failure regression
         run: python tools/test_vulkan_sync_errors.py
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Android SDK and NDK
+        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+      - name: Android dependencies
+        run: tools/android/build_deps.sh
+      - name: Public APK
+        run: |
+          tools/android/ondevice/build_all.sh
+          (cd android && ./gradlew --no-daemon assembleRelease -PonDeviceBuild=true \
+            -PlasVersionCode="$GITHUB_RUN_NUMBER" -PlasVersionName="ci-$GITHUB_RUN_NUMBER")
+      - name: Verify the public APK contains no game code or data
+        run: tools/android/ondevice/check_public_apk.sh android/app/build/outputs/apk/release/app-release.apk
