@@ -3,11 +3,9 @@
 # sha256s and commit list. It never publishes: a person reads the draft, writes the notes and publishes it. None of the
 # files holds game code or game files (the start screen builds the game code from the player's own game files); every
 # build checks that before its upload.
-# Run: gh workflow run release.yml --ref beta_5 -f tag=beta_5 -f ref=beta_5
-#   (--ref: the branch whose copy of this file runs - GitHub dispatches by name only from the default branch's copy,
-#   so until this file is on main, name a branch that has it)
-#   tag: the release tag; must equal LARECOMP_VERSION (runtime/ui/launcher.mm) at ref - the file names come from it.
-#   ref: branch or commit to build (default: the dispatching branch's head).
+# Run: gh workflow run release.yml --ref beta_5 -f tag=beta_5
+#   (--ref selects the branch or commit to build; until this file is on main, name a branch that has it)
+#   tag: the release tag; must equal LARECOMP_VERSION (runtime/ui/launcher.mm) at the dispatched ref.
 # Dry run of this workflow itself: a tag starting with ci-test- may differ from LARECOMP_VERSION (the files keep its
 # name); its draft is a prerelease, as for test-<name> builds.
 # Also on a release published on GitHub (its tag = LARECOMP_VERSION at the tagged commit): the files are built and
@@ -20,12 +18,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (= LARECOMP_VERSION at ref; ci-test-*: dry run)'
+        description: 'Release tag (= LARECOMP_VERSION at dispatched ref; ci-test-*: dry run)'
         required: true
-      ref:
-        description: 'Branch or commit to build (default: the dispatching ref)'
-        required: false
-        default: ''
 permissions:
   contents: read
 concurrency:  # (one run per tag at a time; a second waits instead of racing the first's draft)
@@ -42,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
       # (the inputs go through env, never into the script text)
       - name: Tag = LARECOMP_VERSION
         id: v
