@@ -277,7 +277,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
       - uses: android-actions/setup-android@v3
       - name: Android SDK and NDK
         run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
