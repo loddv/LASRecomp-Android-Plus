@@ -3,6 +3,7 @@
 # sha256s and commit list. It never publishes: a person reads the draft, writes the notes and publishes it. None of the
 # files holds game code or game files (the start screen builds the game code from the player's own game files); every
 # build checks that before its upload.
+# Manual runs don't read or write build caches, so their selected ref cannot poison caches shared with the default branch.
 # Run: gh workflow run release.yml --ref beta_5 -f tag=beta_5
 #   (--ref selects the branch or commit to build; until this file is on main, name a branch that has it)
 #   tag: the release tag; must equal LARECOMP_VERSION (runtime/ui/launcher.mm) at the dispatched ref.
@@ -80,6 +81,7 @@ jobs:
       # (restore / save as two steps: saved as soon as it's built, even when a later step fails)
       - name: Deps cache
         id: deps
+        if: github.event_name == 'release'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -89,7 +91,7 @@ jobs:
       - name: Deps (SDL3, LGPL FFmpeg, keystone, Python)
         run: make deps
       - uses: actions/cache/save@v4
-        if: steps.deps.outputs.cache-hit != 'true'
+        if: github.event_name == 'release' && steps.deps.outputs.cache-hit != 'true'
         with:
           path: |
             build/deps
@@ -97,6 +99,7 @@ jobs:
           key: ${{ steps.deps.outputs.cache-primary-key }}
       # (keystone-engine has no macOS arm64 wheel: pip builds it, then keeps it in its cache)
       - name: pip cache
+        if: github.event_name == 'release'
         uses: actions/cache@v4
         with:
           path: ~/Library/Caches/pip
@@ -158,6 +161,7 @@ jobs:
             vulkan-memory-allocator:p nasm:p
       - name: Deps cache
         id: deps
+        if: github.event_name == 'release'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -167,7 +171,7 @@ jobs:
       - name: Deps (LGPL FFmpeg)
         run: make deps-windows
       - uses: actions/cache/save@v4
-        if: steps.deps.outputs.cache-hit != 'true'
+        if: github.event_name == 'release' && steps.deps.outputs.cache-hit != 'true'
         with:
           path: |
             build/deps-win
@@ -216,6 +220,7 @@ jobs:
       # build_deps.sh skips each part whose output exists (deps-build/: the build trees, not needed for that)
       - name: Deps cache
         id: deps
+        if: github.event_name == 'release'
         uses: actions/cache/restore@v4
         with:
           path: build/linux/${{ matrix.arch }}/deps
@@ -223,6 +228,7 @@ jobs:
       # the helpers' wheels (arm64: oead and keystone-engine built from source, no wheels on PyPI)
       - name: Wheels cache
         id: wheels
+        if: github.event_name == 'release'
         uses: actions/cache/restore@v4
         with:
           path: build/linux/${{ matrix.arch }}/wheels
@@ -232,12 +238,12 @@ jobs:
       # saved once complete (shaderc: build_deps.sh's last part; .ok: the helpers' wheels all installed), even when a
       # later part of the build fails
       - uses: actions/cache/save@v4
-        if: always() && steps.deps.outputs.cache-hit != 'true' && hashFiles(format('build/linux/{0}/deps/lib/libshaderc_shared.so*', matrix.arch)) != ''
+        if: github.event_name == 'release' && always() && steps.deps.outputs.cache-hit != 'true' && hashFiles(format('build/linux/{0}/deps/lib/libshaderc_shared.so*', matrix.arch)) != ''
         with:
           path: build/linux/${{ matrix.arch }}/deps
           key: ${{ steps.deps.outputs.cache-primary-key }}
       - uses: actions/cache/save@v4
-        if: always() && steps.wheels.outputs.cache-hit != 'true' && hashFiles(format('build/linux/{0}/rando-venv/.ok', matrix.arch)) != ''
+        if: github.event_name == 'release' && always() && steps.wheels.outputs.cache-hit != 'true' && hashFiles(format('build/linux/{0}/rando-venv/.ok', matrix.arch)) != ''
         with:
           path: build/linux/${{ matrix.arch }}/wheels
           key: ${{ steps.wheels.outputs.cache-primary-key }}
